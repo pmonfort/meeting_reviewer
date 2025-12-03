@@ -1,0 +1,545 @@
+<div class="card">
+  <h1>🎯 Meeting Reviewer</h1>
+  <p class="subtitle">AI-Powered Meeting Analysis - Get insights from your meeting transcripts</p>
+
+  <!-- Analysis Form -->
+  <div class="card" id="analysisForm" style="display: none;">
+    <h2 style="margin-bottom: 1.5rem;">New Meeting Analysis</h2>
+    <form id="analysisFormForm">
+      <div class="form-group">
+        <label for="transcriptFile">📄 Meeting Transcript File</label>
+        <input type="file" id="transcriptFile" accept=".txt,.md,.doc,.docx" required>
+        <div class="file-info">Accepted formats: TXT, MD, DOC, DOCX</div>
+      </div>
+
+      <div class="form-group">
+        <label for="context">📝 Context / Explanation</label>
+        <textarea 
+          id="context" 
+          placeholder="Provide context about the meeting (e.g., 'This was a job interview for a senior developer position' or 'This was a team standup meeting')"
+        ></textarea>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+        <div class="form-group">
+          <label for="language">🌐 Language</label>
+          <select id="language">
+            <option value="en">English</option>
+            <option value="es">Spanish</option>
+            <option value="fr">French</option>
+            <option value="de">German</option>
+            <option value="pt">Portuguese</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label for="style">📊 Analysis Style</label>
+          <select id="style">
+            <option value="concise">Concise</option>
+            <option value="detailed">Detailed</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label for="agentProvider">🤖 AI Provider</label>
+        <select id="agentProvider">
+          <option value="ollama">Ollama (Local, Free - Recommended for MVP)</option>
+          <option value="openai">OpenAI (GPT-4, GPT-3.5) - Requires API Key</option>
+          <option value="anthropic">Anthropic (Claude) - Requires API Key</option>
+        </select>
+        <div class="file-info">Ollama runs locally and is free. For OpenAI/Anthropic, set API keys in environment.</div>
+      </div>
+
+      <button type="submit" class="btn" id="submitBtn">Analyze Meeting</button>
+      
+      <div class="loading" id="loading">
+        ⏳ Analyzing your meeting transcript... This may take a moment.
+      </div>
+
+      <div class="error" id="error" style="display: none;"></div>
+    </form>
+  </div>
+
+  <!-- Results -->
+  <div class="card result" id="result" style="display: none;" 
+       data-controller="analysis-polling"
+       data-analysis-polling-analysis-id-value=""
+       data-analysis-polling-auth-token-value=""
+       data-analysis-polling-polling-interval-value="2000">
+  </div>
+</div>
+
+<script>
+  // Global variable for auth token and user info
+  let authToken = localStorage.getItem('authToken');
+  let currentUser = JSON.parse(localStorage.getItem('currentUser') || 'null');
+
+  // Wait for DOM to be fully loaded
+  document.addEventListener('DOMContentLoaded', function() {
+    // Check if already authenticated
+    if (authToken) {
+      console.log('Found existing token, showing form');
+      showAnalysisForm();
+      updateHeader();
+    }
+
+    // Set up form submit handler
+    const analysisForm = document.getElementById('analysisFormForm');
+    if (analysisForm) {
+      analysisForm.addEventListener('submit', handleFormSubmit);
+    }
+  });
+
+  function showRegister() {
+    document.getElementById('loginForm').style.display = 'none';
+    document.getElementById('registerForm').style.display = 'block';
+  }
+
+  function showLogin() {
+    document.getElementById('registerForm').style.display = 'none';
+    document.getElementById('loginForm').style.display = 'block';
+  }
+
+  async function register() {
+    const name = document.getElementById('registerName').value;
+    const email = document.getElementById('registerEmail').value;
+    const password = document.getElementById('registerPassword').value;
+    const passwordConfirm = document.getElementById('registerPasswordConfirm').value;
+
+    if (!name || !email || !password || !passwordConfirm) {
+      alert('Please fill in all fields');
+      return;
+    }
+
+    if (password !== passwordConfirm) {
+      alert('Passwords do not match');
+      return;
+    }
+
+    try {
+      const response = await fetch('/api/auth/register', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          user: {
+            name: name,
+            email: email,
+            password: password,
+            password_confirmation: passwordConfirm
+          }
+        })
+      });
+
+      const data = await response.json();
+
+      if (response.ok && data.token) {
+        authToken = data.token;
+        currentUser = data.user;
+        localStorage.setItem('authToken', authToken);
+        localStorage.setItem('currentUser', JSON.stringify(currentUser));
+        console.log('Registration successful, showing form');
+        showAnalysisForm();
+        updateHeader();
+      } else {
+        const errorMsg = data.errors?.join(', ') || data.error || 'Unknown error';
+        alert('Registration failed: ' + errorMsg);
+        console.error('Registration failed:', data);
+      }
+    } catch (error) {
+      console.error('Registration error:', error);
+      alert('Error: ' + error.message);
+    }
+  }
+
+  async function login() {
+    const email = document.getElementById('loginEmail').value;
+    const password = document.getElementById('loginPassword').value;
+
+    if (!email || !password) {
+      alert('Please enter both email and password');
+      return;
+    }
+
+    try {
+      const response = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          email: email,
+          password: password
+        })
+      });
+
+      const data = await response.json();
+
+      if (response.ok && data.token) {
+        authToken = data.token;
+        currentUser = data.user;
+        localStorage.setItem('authToken', authToken);
+        localStorage.setItem('currentUser', JSON.stringify(currentUser));
+        console.log('Login successful, showing form');
+        showAnalysisForm();
+        updateHeader();
+      } else {
+        const errorMsg = data.error || data.errors?.join(', ') || 'Invalid credentials';
+        alert('Login failed: ' + errorMsg);
+        console.error('Login failed:', data);
+      }
+    } catch (error) {
+      console.error('Login error:', error);
+      alert('Error: ' + error.message);
+    }
+  }
+
+  function logout() {
+    if (confirm('Are you sure you want to logout?')) {
+      authToken = null;
+      currentUser = null;
+      localStorage.removeItem('authToken');
+      localStorage.removeItem('currentUser');
+      
+      // Hide form and show auth section
+      document.getElementById('authSection').style.display = 'block';
+      document.getElementById('analysisForm').style.display = 'none';
+      document.getElementById('result').style.display = 'none';
+      
+      // Hide header
+      document.getElementById('header').style.display = 'none';
+      
+      // Clear form fields
+      document.getElementById('loginEmail').value = '';
+      document.getElementById('loginPassword').value = '';
+      
+      console.log('Logged out successfully');
+    }
+  }
+
+  function showAnalysisForm() {
+    const authSection = document.getElementById('authSection');
+    const analysisForm = document.getElementById('analysisForm');
+    
+    if (!authSection || !analysisForm) {
+      console.error('Could not find authSection or analysisForm elements');
+      return;
+    }
+
+    console.log('Showing analysis form');
+    authSection.style.display = 'none';
+    analysisForm.style.display = 'block';
+  }
+
+  function updateHeader() {
+    const header = document.getElementById('header');
+    const userNameEl = document.getElementById('userName');
+    const logoutBtn = document.getElementById('logoutBtn');
+    
+    if (header && currentUser) {
+      header.style.display = 'block';
+      if (userNameEl) {
+        userNameEl.textContent = currentUser.name || currentUser.email;
+      }
+      if (logoutBtn) {
+        logoutBtn.classList.add('active');
+      }
+    }
+  }
+
+  async function handleFormSubmit(e) {
+    e.preventDefault();
+
+    if (!authToken) {
+      alert('Please login first');
+      return;
+    }
+
+    const fileInput = document.getElementById('transcriptFile');
+    const context = document.getElementById('context').value;
+    const language = document.getElementById('language').value;
+    const style = document.getElementById('style').value;
+    const agentProvider = document.getElementById('agentProvider').value;
+
+    if (!fileInput || !fileInput.files[0]) {
+      alert('Please select a transcript file');
+      return;
+    }
+
+    // Show loading
+    const loading = document.getElementById('loading');
+    const error = document.getElementById('error');
+    const result = document.getElementById('result');
+    const submitBtn = document.getElementById('submitBtn');
+
+    if (loading) loading.classList.add('active');
+    if (error) error.style.display = 'none';
+    if (result) result.style.display = 'none';
+    if (submitBtn) submitBtn.disabled = true;
+
+    try {
+      // Read file
+      const file = fileInput.files[0];
+      const formData = new FormData();
+      formData.append('transcript_file', file);
+      formData.append('context', context);
+      formData.append('language', language);
+      formData.append('style', style);
+      formData.append('agent_provider', agentProvider);
+
+      const response = await fetch('/api/analysis', {
+        method: 'POST',
+        headers: {
+          'Authorization': 'Bearer ' + authToken
+        },
+        body: formData
+      });
+
+      const data = await response.json();
+
+      if (response.ok || response.status === 202) {
+        // Analysis started successfully - start polling
+        const analysisId = data.id;
+        
+        // Show loading message
+        const loading = document.getElementById('loading');
+        if (loading) {
+          loading.classList.add('active');
+          loading.textContent = '⏳ Analysis started! Processing in background...';
+        }
+        
+        // Hide any previous results
+        if (result) {
+          result.style.display = 'none';
+        }
+        
+        // Get the polling controller element
+        const pollingElement = document.querySelector('[data-controller="analysis-polling"]');
+        if (pollingElement && analysisId) {
+          // Set analysis ID and auth token for polling
+          pollingElement.setAttribute('data-analysis-polling-analysis-id-value', analysisId);
+          pollingElement.setAttribute('data-analysis-polling-auth-token-value', authToken);
+          
+          // Show results container (polling controller will populate it)
+          result.style.display = 'block';
+          
+          // Scroll to results area
+          result.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        } else {
+          // Fallback: start polling manually if Stimulus not loaded
+          startManualPolling(analysisId);
+        }
+        
+        // Re-enable submit button (job is processing in background)
+        if (submitBtn) submitBtn.disabled = false;
+      } else {
+        // Show detailed error messages
+        let errorMsg = data.error || 'Analysis failed';
+        if (data.errors && Array.isArray(data.errors)) {
+          errorMsg += ': ' + data.errors.join(', ');
+        }
+        console.error('Analysis error response:', data);
+        
+        // Handle authentication errors
+        if (response.status === 401 || errorMsg.includes('User not found') || errorMsg.includes('Missing authentication') || errorMsg.includes('Invalid token') || errorMsg.includes('expired')) {
+          authToken = null;
+          currentUser = null;
+          localStorage.removeItem('authToken');
+          localStorage.removeItem('currentUser');
+          
+          document.getElementById('authSection').style.display = 'block';
+          document.getElementById('analysisForm').style.display = 'none';
+          document.getElementById('header').style.display = 'none';
+          
+          showError('⚠️ Session expired or invalid. Please login again.');
+          showLogin();
+          return;
+        }
+        
+        showError(errorMsg);
+      }
+    } catch (error) {
+      console.error('Analysis error:', error);
+      showError('Error: ' + error.message);
+    } finally {
+      if (loading) loading.classList.remove('active');
+      if (submitBtn) submitBtn.disabled = false;
+    }
+  }
+
+  // Fallback manual polling if Stimulus not available
+  let manualPollingInterval = null;
+  
+  function startManualPolling(analysisId) {
+    if (manualPollingInterval) {
+      clearInterval(manualPollingInterval);
+    }
+    
+    manualPollingInterval = setInterval(async () => {
+      try {
+        const response = await fetch(`/api/analysis/${analysisId}/status`, {
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${authToken}`,
+            'Content-Type': 'application/json'
+          }
+        });
+
+        if (!response.ok) {
+          if (response.status === 401) {
+            clearInterval(manualPollingInterval);
+            authToken = null;
+            currentUser = null;
+            localStorage.removeItem('authToken');
+            localStorage.removeItem('currentUser');
+            document.getElementById('authSection').style.display = 'block';
+            document.getElementById('analysisForm').style.display = 'none';
+            document.getElementById('header').style.display = 'none';
+            showError('⚠️ Session expired. Please login again.');
+            showLogin();
+          }
+          return;
+        }
+
+        const data = await response.json();
+
+        if (data.status === 'completed') {
+          clearInterval(manualPollingInterval);
+          displayResult(data);
+        } else if (data.status === 'failed') {
+          clearInterval(manualPollingInterval);
+          showError(data.error || 'Analysis failed');
+        }
+      } catch (error) {
+        console.error('Polling error:', error);
+      }
+    }, 2000);
+  }
+
+  function displayResult(data) {
+    const resultDiv = document.getElementById('result');
+    if (!resultDiv) return;
+    
+    let html = '<h2>📊 Analysis Results</h2>';
+
+    // Summary
+    html += '<div class="result-section">';
+    html += '<h3>📝 Summary</h3>';
+    html += '<p style="color: var(--gray-700); line-height: 1.8;">' + escapeHtml(data.summary || 'No summary available') + '</p>';
+    html += '</div>';
+
+    // Key Points
+    if (data.key_points && data.key_points.length > 0) {
+      html += '<div class="result-section">';
+      html += '<h3>🔑 Key Points</h3>';
+      html += '<ul>';
+      data.key_points.forEach(point => {
+        html += '<li>' + escapeHtml(point) + '</li>';
+      });
+      html += '</ul>';
+      html += '</div>';
+    }
+
+    // Interview Review
+    if (data.interview_review) {
+      html += '<div class="result-section">';
+      html += '<h3>💼 Interview / Meeting Review</h3>';
+      
+      if (data.interview_review.positives && data.interview_review.positives.length > 0) {
+        html += '<h4>✅ Positives</h4>';
+        html += '<ul>';
+        data.interview_review.positives.forEach(item => {
+          html += '<li>' + escapeHtml(item) + '</li>';
+        });
+        html += '</ul>';
+      }
+
+      if (data.interview_review.improvements && data.interview_review.improvements.length > 0) {
+        html += '<h4>📈 Improvements</h4>';
+        html += '<ul>';
+        data.interview_review.improvements.forEach(item => {
+          html += '<li>' + escapeHtml(item) + '</li>';
+        });
+        html += '</ul>';
+      }
+      
+      html += '</div>';
+    }
+
+    // Feedback
+    if (data.feedback && data.feedback.length > 0) {
+      html += '<div class="result-section">';
+      html += '<h3>💡 Feedback & Advice</h3>';
+      html += '<ul>';
+      data.feedback.forEach(item => {
+        html += '<li>' + escapeHtml(item) + '</li>';
+      });
+      html += '</ul>';
+      html += '</div>';
+    }
+
+    // Action Items
+    if (data.action_items && data.action_items.length > 0) {
+      html += '<div class="result-section">';
+      html += '<h3>✅ Action Items</h3>';
+      html += '<ul>';
+      data.action_items.forEach(item => {
+        html += '<li>' + escapeHtml(item) + '</li>';
+      });
+      html += '</ul>';
+      html += '</div>';
+    }
+
+    // Sentiment
+    if (data.sentiment) {
+      html += '<div class="result-section">';
+      html += '<h3>😊 Sentiment Analysis</h3>';
+      html += '<p style="margin-bottom: 1rem;">Overall: <span class="sentiment ' + data.sentiment.overall + '">' + data.sentiment.overall.toUpperCase() + '</span></p>';
+      
+      if (data.sentiment.notes && data.sentiment.notes.length > 0) {
+        html += '<ul>';
+        data.sentiment.notes.forEach(note => {
+          html += '<li>' + escapeHtml(note) + '</li>';
+        });
+        html += '</ul>';
+      }
+      
+      html += '</div>';
+    }
+
+    resultDiv.innerHTML = html;
+    resultDiv.style.display = 'block';
+    resultDiv.classList.add('active');
+    
+    // Hide loading
+    const loading = document.getElementById('loading');
+    if (loading) loading.classList.remove('active');
+    
+    // Scroll to results
+    resultDiv.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  function showError(message) {
+    const errorDiv = document.getElementById('error');
+    errorDiv.textContent = message;
+    errorDiv.style.display = 'block';
+  }
+
+  function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+  }
+</script>
+
+<style>
+  @media (max-width: 768px) {
+    div[style*="grid-template-columns"] {
+      grid-template-columns: 1fr !important;
+    }
+  }
+</style>
+
+
