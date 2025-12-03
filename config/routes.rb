@@ -11,4 +11,9 @@ Rails.application.routes.draw do
 
   # Defines the root path route ("/")
   # root "posts#index"
+
+  # Frontend routes
+  root "analysis#new"
+  get "analysis/new", to: "analysis#new", as: :new_analysis
+  get "analysis/:id", to: "analysis#show", as: :analysis
 end
