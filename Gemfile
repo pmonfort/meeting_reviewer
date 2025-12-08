@@ -56,7 +56,7 @@ group :development, :test do
   gem "factory_bot_rails", "~> 6.4"
 
   # Faker for testing
-  gem "faker", "~> 3.0"
+  gem "faker", "~> 3.5"
 
   # RSpec for testing
   gem "rspec-rails", "~> 8.0"
